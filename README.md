@@ -31,8 +31,14 @@ CLI progress is shown while GA runs; set `show_progress=False` in `run_experimen
 Outputs are written to `results/`:
 - `per_run_results.csv`: per-seed lap times and penalties
 - `aggregated_results.csv` and `aggregated_results.json`: mean/std/best/worst per `mu`
-- `racing_lines.png`: best evolved racing line per `mu` overlaid on the track
-- `lap_time_vs_mu.png`: lap time vs friction with error bars
+- Plots grouped in subfolders:
+  - `lines/racing_lines.png`: best evolved racing lines + waypoints (all mu)
+  - `lines/racing_line_mu_<mu>.png`: best evolved line for a given mu
+  - `stats/lap_time_vs_mu.png`: lap time vs friction with error bars
+  - `acceleration_profiles/accel_profiles_<mu>.png`: lateral + longitudinal acceleration vs s
+  - `friction_circles/friction_circle_<mu>.png`: friction-circle scatter
+  - `colored_paths/track_colored_alat_<mu>.png`: trajectory colored by lateral acceleration
+  - `colored_paths_longitudinal/track_colored_along_<mu>.png`: trajectory colored by longitudinal acceleration
 
 ## Model overview
 - **Track**: Smooth closed loop generated procedurally; constant width. Centerline is interpolated with periodic cubic splines and exposes tangent/normal vectors and left/right boundaries.
@@ -51,6 +57,7 @@ Default experiment settings (see `experiments.py` for tweaks):
 - GA: `pop_size=40`, `evaluation_budget=2000`, `crossover_rate=0.9`, `mutation_sigma=0.5`, `elite_size=2`
 - Trajectory: `num_control_points=60`, `path_resolution=1.0 m`
 - Speed model: `a_engine=6 m/s^2`, `a_brake=8 m/s^2`, `v_max=80 m/s`, `v_min=1 m/s`
+- Smoothness: `lambda_smooth=0.01` (set to `0` or disable in `experiments.py` for ablation; higher values trade lap-time optimality for gentler offset changes)
 
 ## Reproducibility
 Provide a base seed (`base_seed` in `experiments.py`); per-run seeds derive deterministically from it and the `mu` index. Adjust parameters directly in the module or wrap `run_experiments` from your own scripts.

@@ -7,6 +7,7 @@ import numpy as np
 from ga import GAConfig, GeneticAlgorithm
 from fitness import evaluate_individual
 from track import Track
+from plots import plot_acceleration_analysis
 
 
 def run_experiments(
@@ -27,9 +28,10 @@ def run_experiments(
         bar = "#" * filled + "-" * (width - filled)
         return f"[{bar}] {completed}/{total}"
 
-    num_control_points = 60
+    num_control_points = 20
     path_resolution = 1.0
     speed_params = {"g": 9.81, "v_max": 80.0, "a_engine": 6.0, "a_brake": 8.0, "v_min": 1.0}
+    smooth_params = {"lambda_smooth": 0.01, "enable_smoothness": True}  # set lambda_smooth=0 or enable_smoothness=False to ablate
     ga_config = GAConfig(
         pop_size=40,
         crossover_rate=0.9,
@@ -57,7 +59,15 @@ def run_experiments(
             rng = np.random.default_rng(seed)
 
             def fitness_fn(offset_vector: np.ndarray):
-                return evaluate_individual(offset_vector, track, mu=mu, path_resolution=path_resolution, speed_params=speed_params)
+                return evaluate_individual(
+                    offset_vector,
+                    track,
+                    mu=mu,
+                    path_resolution=path_resolution,
+                    speed_params=speed_params,
+                    lambda_smooth=smooth_params["lambda_smooth"],
+                    enable_smoothness=smooth_params["enable_smoothness"],
+                )
 
             ga = GeneticAlgorithm(num_genes=num_control_points, fitness_fn=fitness_fn, config=ga_config, rng=rng)
             best_vector, best_score, best_info = ga.run()
@@ -70,6 +80,7 @@ def run_experiments(
                     "seed": seed,
                     "lap_time": float(best_info["lap_time"]),
                     "penalty": float(best_info["penalty"]),
+                    "smoothness": float(best_info["smoothness"]),
                 }
             )
 
@@ -102,13 +113,27 @@ def run_experiments(
         aggregated_stats.append(stats)
         if mu_best is not None:
             best_trajectories[mu] = mu_best
+            traj = mu_best["trajectory"]
+            prefix = f"mu_{mu:.2f}".replace(".", "p")
+            ds_segments = np.diff(traj.s) if len(traj.s) > 1 else np.array([0.0])
+            plot_acceleration_analysis(
+                x=traj.path[:, 0],
+                y=traj.path[:, 1],
+                v=mu_best["speed_profile"],
+                kappa=mu_best["curvature"],
+                ds=ds_segments,
+                mu=mu,
+                g=speed_params["g"],
+                out_dir=output_dir,
+                prefix=prefix,
+            )
 
     if show_progress:
         print()  # finish progress line
 
     per_run_csv = os.path.join(output_dir, "per_run_results.csv")
     with open(per_run_csv, "w", newline="") as f_csv:
-        writer = csv.DictWriter(f_csv, fieldnames=["mu", "run", "seed", "lap_time", "penalty"])
+        writer = csv.DictWriter(f_csv, fieldnames=["mu", "run", "seed", "lap_time", "penalty", "smoothness"])
         writer.writeheader()
         for row in per_run_rows:
             writer.writerow(row)
