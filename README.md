@@ -57,7 +57,6 @@ Default experiment settings (see `experiments.py` for tweaks):
 - GA: `pop_size=40`, `evaluation_budget=2000`, `crossover_rate=0.9`, `mutation_sigma=0.5`, `elite_size=2`
 - Trajectory: `num_control_points=60`, `path_resolution=1.0 m`
 - Speed model: `a_engine=6 m/s^2`, `a_brake=8 m/s^2`, `v_max=80 m/s`, `v_min=1 m/s`
-- Smoothness: `lambda_smooth=0.01` (set to `0` or disable in `experiments.py` for ablation; higher values trade lap-time optimality for gentler offset changes)
 
 ## Reproducibility
 Provide a base seed (`base_seed` in `experiments.py`); per-run seeds derive deterministically from it and the `mu` index. Adjust parameters directly in the module or wrap `run_experiments` from your own scripts.
