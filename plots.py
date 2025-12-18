@@ -106,17 +106,24 @@ def plot_acceleration_analysis(
     if ds.size < len(v) - 1:
         ds = np.pad(ds, (0, (len(v) - 1) - ds.size), constant_values=ds[-1] if ds.size > 0 else 0.0)
 
-    # Build arc-length axis.
-    s_axis = np.concatenate([[0.0], np.cumsum(ds[: len(v) - 1])])
-
     # Accelerations.
     a_lat = v ** 2 * np.abs(kappa)
     a_long = np.zeros_like(v)
-    for i in range(len(v) - 1):
-        if ds[i] > 0:
-            a_long[i] = (v[i + 1] ** 2 - v[i] ** 2) / (2.0 * ds[i])
+    if len(v) >= 2:
+        for i in range(len(v)):
+            if i == 0:
+                denom = max(ds[0], 1e-6)
+                a_long[i] = (v[1] ** 2 - v[0] ** 2) / (2.0 * denom)
+            elif i == len(v) - 1:
+                denom = max(ds[-1], 1e-6)
+                a_long[i] = (v[-1] ** 2 - v[-2] ** 2) / (2.0 * denom)
+            else:
+                denom = max(0.5 * (ds[i - 1] + ds[i]), 1e-6)
+                a_long[i] = (v[i + 1] ** 2 - v[i - 1] ** 2) / (2.0 * denom)
+
+    s_axis = np.zeros(len(v), dtype=float)
     if len(v) > 1:
-        a_long[-1] = a_long[-2]
+        s_axis[1:] = np.cumsum(ds[:len(v)-1])
 
     # Plot A: acceleration profiles vs s (lat + long).
     plt.figure(figsize=(8, 4))

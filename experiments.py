@@ -1,5 +1,3 @@
-import csv
-import json
 import os
 from typing import Dict, List, Sequence, Tuple
 import numpy as np
@@ -28,7 +26,7 @@ def run_experiments(
         bar = "#" * filled + "-" * (width - filled)
         return f"[{bar}] {completed}/{total}"
 
-    num_control_points = 20
+    num_control_points = 25
     path_resolution = 1.0
     speed_params = {
         "g": 9.81,
