@@ -29,6 +29,8 @@ def evaluate_individual(
         a_engine=speed_params.get("a_engine", 6.0),
         a_brake=speed_params.get("a_brake", 8.0),
         v_min=speed_params.get("v_min", 1.0),
+        smooth_iters=speed_params.get("smooth_iters", 2),
+        smooth_alpha=speed_params.get("smooth_alpha", 0.5),
     )
 
     penalty = 0.0

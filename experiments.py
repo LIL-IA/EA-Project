@@ -30,7 +30,15 @@ def run_experiments(
 
     num_control_points = 20
     path_resolution = 1.0
-    speed_params = {"g": 9.81, "v_max": 80.0, "a_engine": 6.0, "a_brake": 8.0, "v_min": 1.0}
+    speed_params = {
+        "g": 9.81,
+        "v_max": 80.0,
+        "a_engine": 6.0,
+        "a_brake": 8.0,
+        "v_min": 1.0,
+        "smooth_iters": 2,
+        "smooth_alpha": 0.5,
+    }
     ga_config = GAConfig(
         pop_size=40,
         crossover_rate=0.9,
