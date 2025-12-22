@@ -1,5 +1,3 @@
-import csv
-import json
 import os
 from typing import Dict, List, Sequence, Tuple
 import numpy as np
@@ -28,7 +26,7 @@ def run_experiments(
         bar = "#" * filled + "-" * (width - filled)
         return f"[{bar}] {completed}/{total}"
 
-    num_control_points = 100
+    num_control_points = 20
     path_resolution = 1.0
     speed_params = {"g": 9.81, "v_max": 80.0, "a_engine": 6.0, "a_brake": 8.0, "v_min": 1.0}
     ga_config = GAConfig(
@@ -37,7 +35,7 @@ def run_experiments(
         mutation_sigma=0.5,
         tournament_k=3,
         elite_size=2,
-        evaluation_budget=50000,
+        evaluation_budget=2000,
         bounds=(-track.width / 2.0, track.width / 2.0),
     )
 
