@@ -28,7 +28,7 @@ def run_experiments(
         bar = "#" * filled + "-" * (width - filled)
         return f"[{bar}] {completed}/{total}"
 
-    num_control_points = 20
+    num_control_points = 100
     path_resolution = 1.0
     speed_params = {"g": 9.81, "v_max": 80.0, "a_engine": 6.0, "a_brake": 8.0, "v_min": 1.0}
     ga_config = GAConfig(
@@ -37,7 +37,7 @@ def run_experiments(
         mutation_sigma=0.5,
         tournament_k=3,
         elite_size=2,
-        evaluation_budget=2000,
+        evaluation_budget=50000,
         bounds=(-track.width / 2.0, track.width / 2.0),
     )
 
@@ -53,6 +53,7 @@ def run_experiments(
     for mu_idx, mu in enumerate(mu_values):
         times: List[float] = []
         mu_best: Dict | None = None
+        mu_best_score: float | None = None
         for run_idx in range(runs):
             seed = int(base_seed + mu_idx * 1000 + run_idx)
             rng = np.random.default_rng(seed)
@@ -74,14 +75,31 @@ def run_experiments(
                 }
             )
 
-            if mu_best is None or best_info["lap_time"] < mu_best["lap_time"]:
+            if (mu_best_score is None) or (best_score < mu_best_score):
+                mu_best_score = float(best_score)
                 mu_best = {
                     "lap_time": best_info["lap_time"],
+                    "fitness": best_score,
                     "trajectory": best_info["trajectory"],
                     "offsets": best_vector,
                     "speed_profile": best_info["speed_profile"],
                     "curvature": best_info["curvature"],
                 }
+
+                # Generate plots immediately on improvement to avoid identical plots when no further gain.
+                prefix = f"mu_{mu:.2f}".replace(".", "p")
+                ds_segments = np.diff(best_info["trajectory"].s) if len(best_info["trajectory"].s) > 1 else np.array([0.0])
+                plot_acceleration_analysis(
+                    x=best_info["trajectory"].path[:, 0],
+                    y=best_info["trajectory"].path[:, 1],
+                    v=best_info["speed_profile"],
+                    kappa=best_info["curvature"],
+                    ds=ds_segments,
+                    mu=mu,
+                    g=speed_params["g"],
+                    out_dir=output_dir,
+                    prefix=prefix,
+                )
 
             completed_jobs += 1
             if show_progress:
@@ -103,40 +121,8 @@ def run_experiments(
         aggregated_stats.append(stats)
         if mu_best is not None:
             best_trajectories[mu] = mu_best
-            traj = mu_best["trajectory"]
-            prefix = f"mu_{mu:.2f}".replace(".", "p")
-            ds_segments = np.diff(traj.s) if len(traj.s) > 1 else np.array([0.0])
-            plot_acceleration_analysis(
-                x=traj.path[:, 0],
-                y=traj.path[:, 1],
-                v=mu_best["speed_profile"],
-                kappa=mu_best["curvature"],
-                ds=ds_segments,
-                mu=mu,
-                g=speed_params["g"],
-                out_dir=output_dir,
-                prefix=prefix,
-            )
 
     if show_progress:
         print()  # finish progress line
-
-    per_run_csv = os.path.join(output_dir, "per_run_results.csv")
-    with open(per_run_csv, "w", newline="") as f_csv:
-        writer = csv.DictWriter(f_csv, fieldnames=["mu", "run", "seed", "lap_time", "penalty"])
-        writer.writeheader()
-        for row in per_run_rows:
-            writer.writerow(row)
-
-    aggregated_csv = os.path.join(output_dir, "aggregated_results.csv")
-    with open(aggregated_csv, "w", newline="") as f_csv:
-        writer = csv.DictWriter(f_csv, fieldnames=["mu", "mean", "std", "best", "worst", "runs"])
-        writer.writeheader()
-        for row in aggregated_stats:
-            writer.writerow(row)
-
-    aggregated_json = os.path.join(output_dir, "aggregated_results.json")
-    with open(aggregated_json, "w") as f_json:
-        json.dump({"mu_values": list(mu_values), "stats": aggregated_stats, "per_run": per_run_rows}, f_json, indent=2)
 
     return aggregated_stats, per_run_rows, best_trajectories
