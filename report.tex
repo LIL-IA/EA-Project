@@ -50,7 +50,7 @@ This paper makes the following contributions:
     \item A reproducible EA-based pipeline for racing line optimization where candidate trajectories are encoded as lateral offsets from a track centerline.
     \item A quasi-steady lap time evaluator based on curvature-constrained speed limits and a friction-circle acceleration constraint (G--G limit), which connects naturally to the literature on lap time simulation and G--G diagrams \cite{b_massaro2021,b_goodman2009}.
     \item An experimental study over multiple friction coefficients with repeated runs, reporting mean/std/best lap times and analyzing how friction changes the optimized trajectory.
-    \item A careful discussion of discretization and representation pitfalls (e.g., why acceleration appears ``instantaneous'', why friction-circle plots may show slight violations.
+    \item A careful discussion of discretization and representation pitfalls (e.g., why acceleration appears ``instantaneous'', why friction-circle plots may show slight violations).
 \end{itemize}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -92,7 +92,7 @@ A dense geometric path $\mathbf{p}(s)$ is generated from these control points vi
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section{Speed and Lap Time Model}
 \subsection{Curvature}
-From the dense path samples $\{\mathbf{p}_j\}_{j=0}^{M-1}$, curvature $\kappa_j$ is estimated numerically. Curvature estimation can be noisy if computed via second derivatives of noisy coordinates; this matters because the speed limit scales with $1/\sqrt{|\kappa|}$. We therefore either (a) re-sample at constant arc-length step $\Delta s$ and apply mild smoothing, or (b) smooth the offset function before generating the dense path (Sec.~\ref{sec:regularization}). These steps reduce curvature spikes without changing the qualitative outcome of the study.
+From the dense path samples $\{\mathbf{p}_j\}_{j=0}^{M-1}$, curvature $\kappa_j$ is estimated numerically. Curvature estimation can be noisy if computed via second derivatives of noisy coordinates; this matters because the speed limit scales with $1/\sqrt{|\kappa|}$. In the implemented pipeline, we rely on constant arc-length re-sampling via cubic splines (no extra smoothing), so sharp offset changes can still introduce curvature spikes that are handled by the fitness penalty rather than by filtering.
 
 \subsection{Friction circle and speed limit}
 We use a curvature-based lateral acceleration model:
@@ -137,10 +137,10 @@ While the friction-circle constraint \eqref{eq:frictioncircle} couples $a_{\math
 \subsection{Lap time computation}
 The lap time is approximated as:
 \begin{equation}
-T = \sum_{j=0}^{M-2} \frac{\Delta s_j}{\max(v_{\mathrm{mid},j},\,v_{\min})},
+T = \sum_{j=0}^{M-2} \frac{\Delta s_j}{\max(v_{j},\,v_{\min})},
 \label{eq:laptime}
 \end{equation}
-where $\Delta s_j$ is the segment length between consecutive dense samples and $v_{\mathrm{mid},j}$ is the midpoint speed for that segment. Using true geometric $\Delta s_j$ avoids bias from assuming constant spacing, and the small floor $v_{\min}$ prevents division by zero if the profile momentarily touches zero.
+where $\Delta s_j$ is the segment length between consecutive dense samples and $v_j$ is the speed at the start of that segment. Using true geometric $\Delta s_j$ avoids bias from assuming constant spacing, and the small floor $v_{\min}$ prevents division by zero if the profile momentarily touches zero.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section{Genetic Algorithm Optimization}
@@ -156,29 +156,23 @@ computed by the pipeline in Sec.~IV.
 
 \subsection{Smoothness regularization}
 \label{sec:regularization}
-To address waypoint-induced curvature peaks, we include an optional smoothness term:
+To discourage waypoint-induced curvature spikes, the implemented fitness adds a fixed penalty to lap time based on curvature variation:
 \begin{equation}
-f(\mathbf{d}) = T(\mathbf{d}) + \lambda \, \Omega(\mathbf{d}),
+f(\mathbf{d}) = T(\mathbf{d}) + 0.1 \cdot \mathrm{std}\!\bigl(\Delta \kappa(\mathbf{d})\bigr),
 \end{equation}
-where $\Omega(\mathbf{d})$ penalizes discrete curvature of the offset sequence, e.g.,
-\begin{equation}
-\Omega(\mathbf{d}) = \sum_{i=0}^{N-1} \bigl(d_{(i+1)\bmod N}-2d_i+d_{(i-1)\bmod N}\bigr)^2,
-\end{equation}
-which uses wrap-around indexing for the closed loop. Intuitively, this discourages the GA from producing sharp local changes between neighboring waypoints that a spline must interpolate exactly.
-
-An alternative (sometimes stronger) fix is to replace interpolating splines with \emph{smoothing splines} for $d(s)$, so that the final trajectory is not forced to pass exactly through all waypoints; this directly reduces curvature spikes at knots. Both approaches are consistent with the goal of producing physically interpretable trajectories under a curvature-sensitive speed model.
+where $\Delta \kappa$ denotes first differences of the curvature sequence computed from the dense trajectory. A large penalty ($10^6$) is also added if the spline-based trajectory leaves the track boundaries. No separate user-tunable $\lambda$ or smoothing-spline reconstruction is applied in the current code.
 
 \subsection{Selection, variation, and elitism}
 We use a standard real-coded GA with:
 \begin{itemize}
     \item Tournament selection.
-    \item Crossover between parent offset vectors (e.g., arithmetic crossover or SBX \cite{b_deb1995}).
+    \item Arithmetic crossover between parent offset vectors.
     \item Gaussian mutation on offsets (followed by clipping/repair).
     \item Elitism (preserve best individuals into the next generation).
 \end{itemize}
 
 \subsection{Evaluation budget}
-A core experimental control is a fixed evaluation budget $B$ (number of fitness evaluations). For a population size $P$ and $G$ generations, a typical budget is $B \approx P\times G$ (plus initialization). Using a fixed budget ensures fair comparison across friction settings and repeated runs, since each run consumes the same computational effort.
+A core experimental control is a fixed evaluation budget $B$ (number of fitness evaluations). The implementation stops when $B$ evaluations have been consumed (default $B=5000$ with population size $P=40$), letting the number of generations adapt accordingly. Using a fixed budget ensures fair comparison across friction settings and repeated runs, since each run consumes the same computational effort.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section{Experimental Setup}
@@ -191,7 +185,7 @@ We evaluate three friction coefficients:
 \end{itemize}
 
 \subsection{Common dynamic parameters}
-Across all friction conditions, the quasi-steady speed model uses the same hardware and numerical settings (matching the implementation in \texttt{speed\_model.py}): $g=9.81~\mathrm{m/s^2}$, $v_{\max}=80~\mathrm{m/s}$, $a_{\mathrm{eng}}=6~\mathrm{m/s^2}$, $a_{\mathrm{brake}}=8~\mathrm{m/s^2}$, curvature smoothing $\varepsilon=10^{-6}$, and lap-time floor $v_{\min}=1~\mathrm{m/s}$. Holding these fixed isolates the effect of $\mu$.
+Across all friction conditions, the quasi-steady speed model uses the same hardware and numerical settings (matching the implementation in \texttt{speed\_model.py}): $g=9.81~\mathrm{m/s^2}$, $v_{\max}=80~\mathrm{m/s}$, $a_{\mathrm{eng}}=6~\mathrm{m/s^2}$, $a_{\mathrm{brake}}=8~\mathrm{m/s^2}$, curvature epsilon $\varepsilon=10^{-6}$, and lap-time floor $v_{\min}=1~\mathrm{m/s}$. Holding these fixed isolates the effect of $\mu$.
 
 \subsection{Repeated runs and statistics}
 For each $\mu$, we perform at least 20 independent GA runs with different random seeds. For each condition, we report:
@@ -204,8 +198,8 @@ For each $\mu$, we perform at least 20 independent GA runs with different random
 \subsection{Implementation and reproducibility}
 The experimental loop is scripted in Python: lap-time evaluation and speed profiles are computed in \texttt{speed\_model.py}, fitness evaluation in \texttt{fitness.py}, and batch experiments in \texttt{experiments.py} with plotting utilities in \texttt{plots.py}. Using the same code path for all $\mu$ values and recording the random seeds per run enables reproduction of the statistics in Table~\ref{tab:lapstats}.
 
-\subsection{Measured outcome (example results)}
-Using our implementation and diagnostics, we obtained the following summary (example from one set of experiments):
+\subsection{Measured outcome}
+Using the provided implementation and diagnostics (20 runs per $\mu$), we obtained:
 
 \begin{table}[htbp]
 \caption{Lap time statistics vs. friction coefficient (20 runs each).}
@@ -214,9 +208,9 @@ Using our implementation and diagnostics, we obtained the following summary (exa
 \hline
 $\mu$ & Mean (s) & Std (s) & Best (s)\\
 \hline
-0.60 & 38.01 & 0.60 & 37.14\\
-0.90 & 31.87 & 0.90 & 30.29\\
-1.20 & 27.60 & 0.57 & 26.53\\
+0.60 & 21.21 & 0.10 & 20.95\\
+0.90 & 17.44 & 0.15 & 17.22\\
+1.20 & 15.23 & 0.13 & 14.99\\
 \hline
 \end{tabular}
 \label{tab:lapstats}
@@ -242,9 +236,9 @@ Longitudinal acceleration is naturally defined on segments:
 \begin{equation}
 a_{\mathrm{long},j} \approx \frac{v_{j+1}^2 - v_j^2}{2\Delta s_j}.
 \end{equation}
-Lateral acceleration is also most consistent when evaluated at segment midpoints:
+Lateral acceleration is evaluated pointwise with the available samples:
 \begin{equation}
-a_{\mathrm{lat},j} \approx v_{\mathrm{mid},j}^2 |\kappa_{\mathrm{mid},j}|.
+a_{\mathrm{lat},j} \approx v_{j}^2 |\kappa_{j}|.
 \end{equation}
 This reduces the common artifact where friction-circle scatter plots show slight violations due to off-by-one indexing or mixing pointwise and segmentwise quantities.
 
@@ -288,8 +282,8 @@ The friction-circle constraint is a coarse approximation of tire behavior; real 
 \subsection{Numerical considerations (discretization and curvature noise)}
 We observed two common numerical issues:
 \begin{itemize}
-    \item \textbf{Apparent friction-circle violations:} When $a_{\mathrm{lat}}$ and $a_{\mathrm{long}}$ are computed with mismatched discretizations (pointwise vs segmentwise) or with assumed constant $\Delta s$, a small subset of points may appear slightly outside the friction circle. Using true segment lengths and midpoint-consistent accelerations removes most of these artifacts.
-    \item \textbf{Waypoint-aligned spikes:} Interpolating splines forced through independently optimized waypoints can create curvature peaks at knot locations. This produces sharp speed-limit changes and large reconstructed accelerations. Smoothing-spline reconstruction or explicit smoothness regularization mitigates this issue.
+    \item \textbf{Apparent friction-circle violations:} When $a_{\mathrm{lat}}$ and $a_{\mathrm{long}}$ are computed with mismatched discretizations (pointwise vs segmentwise) or with assumed constant $\Delta s$, a small subset of points may appear slightly outside the friction circle. Using true segment lengths and consistent discretization removes most of these artifacts.
+    \item \textbf{Waypoint-aligned spikes:} Interpolating splines forced through independently optimized waypoints can create curvature peaks at knot locations. This produces sharp speed-limit changes and large reconstructed accelerations; in our implementation these are discouraged via the curvature-variation penalty rather than by spline smoothing.
 \end{itemize}
 Figure~\ref{fig:accelprofiles} illustrates the acceleration profiles that result from the optimized lines. Lateral acceleration rises with $\mu$ and remains near its cap through long corners, while longitudinal acceleration spends more time at the engine/brake limits as friction grows, consistent with the friction-circle coupling.
 

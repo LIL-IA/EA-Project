@@ -90,7 +90,7 @@ def plot_acceleration_analysis(
     """
     accel_dir = os.path.join(out_dir, "acceleration_profiles")
     friction_dir = os.path.join(out_dir, "friction_circles")
-    colored_dir = os.path.join(out_dir, "colored_paths")
+    colored_dir = os.path.join(out_dir, "colored_paths_lateral")
     colored_long_dir = os.path.join(out_dir, "colored_paths_longitudinal")
     for d in (accel_dir, friction_dir, colored_dir, colored_long_dir):
         os.makedirs(d, exist_ok=True)
