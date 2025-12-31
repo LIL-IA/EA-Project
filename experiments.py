@@ -62,7 +62,7 @@ def run_experiments(
         filled = int(fraction * width)
         bar = "#" * filled + "-" * (width - filled)
         return f"[{bar}] {completed}/{total}"
-
+    
     aggregated_stats: List[Dict] = []
     per_run_rows: List[Dict] = []
     best_trajectories: Dict[float, Dict] = {}
@@ -109,6 +109,20 @@ def run_experiments(
                     "speed_profile": best_info["speed_profile"],
                     "curvature": best_info["curvature"],
                 }
+                # Generate plots immediately on improvement to avoid identical plots when no further gain.
+                prefix = f"mu_{mu:.2f}".replace(".", "p")
+                ds_segments = np.diff(best_info["trajectory"].s) if len(best_info["trajectory"].s) > 1 else np.array([0.0])
+                plot_acceleration_analysis(
+                    x=best_info["trajectory"].path[:, 0],
+                    y=best_info["trajectory"].path[:, 1],
+                    v=best_info["speed_profile"],
+                    kappa=best_info["curvature"],
+                    ds=ds_segments,
+                    mu=mu,
+                    g=speed_params["g"],
+                    out_dir=output_dir,
+                    prefix=prefix,
+                )
 
                 # Generate plots immediately on improvement to avoid identical plots when no further gain.
                 prefix = f"mu_{mu:.2f}".replace(".", "p")
@@ -148,7 +162,7 @@ def run_experiments(
 
     if show_progress:
         print()  # finish progress line
-
+        
     if save_results:
         _persist_results(output_path, aggregated_stats, per_run_rows)
 
