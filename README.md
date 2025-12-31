@@ -27,8 +27,14 @@ Execute the full pipeline (GA runs for each `mu`, save results, generate plots):
 ```bash
 python main.py
 ```
-CLI progress is shown while GA runs; set `show_progress=False` in `run_experiments` if you need silent execution.
-Outputs are written to `results/`:
+Useful flags:
+- `--runs 5` (number of runs per `mu`)
+- `--mu 0.6 0.9 1.2` (space-separated list of friction coefficients)
+- `--num-control-points 60` (lateral offset waypoints)
+- `--path-resolution 1.0` (dense sampling step in meters)
+- `--no-progress` (silent mode), `--no-save` (skip CSV/JSON writes), `--output-dir <dir>` (custom output root)
+
+Outputs are written to `results/` (or your custom output dir):
 - `per_run_results.csv`: per-seed lap times and penalties
 - `aggregated_results.csv` and `aggregated_results.json`: mean/std/best/worst per `mu`
 - Plots grouped in subfolders:

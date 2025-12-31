@@ -1,0 +1,359 @@
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+
+\begin{document}
+
+\title{Evolutionary Racing Line Optimization Under Varying Tire-Road Friction}
+
+\author{\IEEEauthorblockN{Lilian L'HELGOUALC'H}
+\IEEEauthorblockA{\textit{Computer Engineering Department} \\
+\textit{Izmir Institute of Technology (IYTE)}\\
+Izmir, Turkey \\
+lilianlhelgoualch@gmail.com}
+}
+
+\maketitle
+
+\begin{abstract}
+This paper studies evolutionary optimization of a racing trajectory for a simplified vehicle on a two-dimensional closed circuit. A genetic algorithm optimizes the racing line represented as lateral offsets from a track centerline. Lap time is evaluated using a quasi-steady speed model constrained by curvature and a friction-circle acceleration limit. The central research question is: how does the tire-road friction coefficient $\mu$ influence the optimal racing line and the resulting lap time obtained through evolutionary optimization? Experiments are conducted for multiple friction values with repeated independent runs. In addition to reporting lap time statistics, we analyze speed and acceleration profiles along the lap, and discuss numerical and representation effects (discretization, curvature estimation, waypoint-induced curvature peaks) that can strongly affect acceleration plots.
+\end{abstract}
+
+\begin{IEEEkeywords}
+evolutionary computation, genetic algorithm, racing line optimization, lap time, friction circle, quasi-steady simulation
+\end{IEEEkeywords}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Introduction}
+Minimum-lap-time racing line generation is a canonical problem at the intersection of trajectory optimization and vehicle dynamics. In high-fidelity settings, the problem is often treated as a nonlinear optimal control problem and solved using direct methods; such approaches can incorporate rich tire, powertrain, and transient dynamics, but are more complex to implement and tune \cite{b_massaro2021,b_dalbianco2017}. 
+
+This project targets a different point in the design space: a \emph{scientifically clear and computationally light} experimental platform where (i) the racing line is optimized by an evolutionary algorithm (EA), and (ii) lap time is estimated with a simplified, quasi-steady speed model. The simplified setup is intentionally chosen to (a) keep the optimization loop fast enough for repeated independent runs, and (b) make the influence of key parameters---especially friction---easy to isolate and interpret.
+
+\subsection{Research question and contributions}
+The research question is:
+
+\begin{quote}
+\emph{How does the tire-road friction coefficient $\mu$ influence the optimal racing line and lap time obtained through evolutionary optimization?}
+\end{quote}
+
+This paper makes the following contributions:
+\begin{itemize}
+    \item A reproducible EA-based pipeline for racing line optimization where candidate trajectories are encoded as lateral offsets from a track centerline.
+    \item A quasi-steady lap time evaluator based on curvature-constrained speed limits and a friction-circle acceleration constraint (G--G limit), which connects naturally to the literature on lap time simulation and G--G diagrams \cite{b_massaro2021,b_goodman2009}.
+    \item An experimental study over multiple friction coefficients with repeated runs, reporting mean/std/best lap times and analyzing how friction changes the optimized trajectory.
+    \item A careful discussion of discretization and representation pitfalls (e.g., why acceleration appears ``instantaneous'', why friction-circle plots may show slight violations.
+\end{itemize}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Related Work}
+\subsection{Minimum-time motion along a fixed path}
+Our speed-profile computation is conceptually related to time-optimal \emph{path parameterization}, where the geometric path is fixed and the goal is to find the fastest time scaling under constraints. Classical work in robotics formulates this as a minimum-time problem along a specified path with bounded accelerations/forces and solves it via forward/backward integration or related methods \cite{b_bobrow1985,b_shin1985}. This perspective is also widely used in vehicle lap simulation: given a racing line, compute the fastest feasible speed profile under friction and power limits \cite{b_massaro2021}.
+
+\subsection{Lap time simulation and friction limits}
+Quasi-steady lap time simulation often relies on G--G diagrams (or friction-circle/ellipse approximations) to bound feasible combinations of longitudinal and lateral acceleration \cite{b_massaro2021,b_goodman2009}. Compared with full optimal control models \cite{b_dalbianco2017}, such methods trade realism for interpretability and computational efficiency, which is appropriate for iterative optimization in an EA loop.
+
+\subsection{Evolutionary optimization for continuous variables}
+Racing line optimization is naturally continuous (offsets, spline parameters, control points). Real-coded genetic algorithms (RCGAs) and other EAs have been widely studied for continuous optimization \cite{b_katoch2020}. Standard components include tournament selection, crossover, mutation, and elitism; simulated binary crossover (SBX) is a common real-coded crossover operator \cite{b_deb1995}, and differential evolution is another strong baseline for continuous spaces \cite{b_storn1997}. Recent work has also explored GAs directly for racing line optimization \cite{b_vrajitoru2019,b_ga_racing2021}.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Problem Formulation}
+\subsection{Track model}
+We consider a 2D closed circuit described by:
+\begin{itemize}
+    \item A centerline parameterized by arc length $s \in [0,L)$, where $L$ is the total track length.
+    \item A constant track half-width $w/2$ defining left and right boundaries.
+\end{itemize}
+A feasible trajectory must remain within track boundaries at all sampled positions.
+
+\subsection{Trajectory representation (decision variables)}
+A candidate racing line is encoded by $N$ lateral offsets
+\begin{equation}
+\mathbf{d} = [d_0,\dots,d_{N-1}], \quad d_i \in [-w/2, w/2],
+\end{equation}
+defined at evenly spaced centerline arc-length positions $s_i$.
+
+Each offset produces a 2D point
+\begin{equation}
+\mathbf{p}_i = \mathbf{c}(s_i) + d_i \, \mathbf{n}(s_i),
+\end{equation}
+where $\mathbf{c}(s)$ is centerline position and $\mathbf{n}(s)$ is the unit normal.
+
+A dense geometric path $\mathbf{p}(s)$ is generated from these control points via spline interpolation, then re-sampled into $M \gg N$ dense points for evaluation. The purpose of dense sampling is to evaluate curvature and constraints throughout the lap, not only at waypoints.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Speed and Lap Time Model}
+\subsection{Curvature}
+From the dense path samples $\{\mathbf{p}_j\}_{j=0}^{M-1}$, curvature $\kappa_j$ is estimated numerically. Curvature estimation can be noisy if computed via second derivatives of noisy coordinates; this matters because the speed limit scales with $1/\sqrt{|\kappa|}$. We therefore either (a) re-sample at constant arc-length step $\Delta s$ and apply mild smoothing, or (b) smooth the offset function before generating the dense path (Sec.~\ref{sec:regularization}). These steps reduce curvature spikes without changing the qualitative outcome of the study.
+
+\subsection{Friction circle and speed limit}
+We use a curvature-based lateral acceleration model:
+\begin{equation}
+a_{\mathrm{lat}}(s) = v(s)^2 |\kappa(s)|.
+\end{equation}
+The friction-circle (G--G) constraint is:
+\begin{equation}
+a_{\mathrm{lat}}(s)^2 + a_{\mathrm{long}}(s)^2 \le (\mu g)^2,
+\label{eq:frictioncircle}
+\end{equation}
+where $\mu$ is the tire-road friction coefficient and $g$ is gravitational acceleration. The friction-circle concept is commonly used as a simplified feasible-acceleration envelope in vehicle dynamics and lap time simulation \cite{b_massaro2021,b_goodman2009}.
+
+From the lateral-only case ($a_{\mathrm{long}}=0$), the curvature-induced speed limit is:
+\begin{equation}
+v_{\mathrm{curve}}(s) = \sqrt{\frac{\mu g}{|\kappa(s)| + \varepsilon}},
+\label{eq:vcurve}
+\end{equation}
+with small $\varepsilon$ to avoid division by zero on straights.
+
+\subsection{Forward-backward speed profile computation}
+Given the geometric path and $v_{\mathrm{curve}}(s)$, we compute a feasible speed profile $v(s)$ using a standard forward/backward pass approach related to time-optimal path parameterization \cite{b_bobrow1985,b_shin1985}:
+
+\begin{itemize}
+    \item \textbf{Forward pass (acceleration-limited):} propagate speed forward with bounded positive longitudinal acceleration (engine limit), ensuring $v(s)\le v_{\mathrm{curve}}(s)$.
+    \item \textbf{Backward pass (braking-limited):} propagate speed backward with bounded negative longitudinal acceleration (brake limit), ensuring the vehicle can decelerate in time to satisfy upcoming curvature-limited speeds.
+\end{itemize}
+
+In both passes, longitudinal acceleration is limited by the friction circle and by hardware caps ($a_{\mathrm{eng}}$, $a_{\mathrm{brake}}$). At each segment,
+\begin{align*}
+a_{\mathrm{lat},i} &= v_i^2 |\kappa_i|,\\
+a_{\mathrm{long}}^{\max} &= \sqrt{\max\bigl(0,(\mu g)^2 - a_{\mathrm{lat},i}^2\bigr)}.
+\end{align*}
+The forward update uses $a_{\mathrm{acc}}=\min(a_{\mathrm{eng}}, a_{\mathrm{long}}^{\max})$:
+\begin{equation}
+v_{i+1} = \min\!\left(v_{\mathrm{curve}}(s_{i+1}), \sqrt{v_i^2 + 2 a_{\mathrm{acc}} \Delta s_i}\right),
+\end{equation}
+and the backward pass mirrors this with $a_{\mathrm{dec}}=\min(a_{\mathrm{brake}}, a_{\mathrm{long}}^{\max})$. A global speed cap $v_{\max}$ is also applied to avoid unrealistic straights.
+
+While the friction-circle constraint \eqref{eq:frictioncircle} couples $a_{\mathrm{lat}}$ and $a_{\mathrm{long}}$, the pass-based method is quasi-steady: it enforces constraints at discrete arc-length samples. This is efficient and interpretable, but it can produce sharp transitions in $a_{\mathrm{long}}$ if curvature changes abruptly (Sec.~\ref{sec:discussion}).
+
+\subsection{Lap time computation}
+The lap time is approximated as:
+\begin{equation}
+T = \sum_{j=0}^{M-2} \frac{\Delta s_j}{\max(v_{\mathrm{mid},j},\,v_{\min})},
+\label{eq:laptime}
+\end{equation}
+where $\Delta s_j$ is the segment length between consecutive dense samples and $v_{\mathrm{mid},j}$ is the midpoint speed for that segment. Using true geometric $\Delta s_j$ avoids bias from assuming constant spacing, and the small floor $v_{\min}$ prevents division by zero if the profile momentarily touches zero.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Genetic Algorithm Optimization}
+\subsection{Encoding and constraints}
+Each individual is the offset vector $\mathbf{d}\in\mathbb{R}^N$ with bound constraints $d_i\in[-w/2,w/2]$. Any out-of-range values after mutation are clipped (or repaired) to remain feasible.
+
+\subsection{Fitness}
+The primary objective is lap time:
+\begin{equation}
+f(\mathbf{d}) = T(\mathbf{d}),
+\end{equation}
+computed by the pipeline in Sec.~IV.
+
+\subsection{Smoothness regularization}
+\label{sec:regularization}
+To address waypoint-induced curvature peaks, we include an optional smoothness term:
+\begin{equation}
+f(\mathbf{d}) = T(\mathbf{d}) + \lambda \, \Omega(\mathbf{d}),
+\end{equation}
+where $\Omega(\mathbf{d})$ penalizes discrete curvature of the offset sequence, e.g.,
+\begin{equation}
+\Omega(\mathbf{d}) = \sum_{i=0}^{N-1} \bigl(d_{(i+1)\bmod N}-2d_i+d_{(i-1)\bmod N}\bigr)^2,
+\end{equation}
+which uses wrap-around indexing for the closed loop. Intuitively, this discourages the GA from producing sharp local changes between neighboring waypoints that a spline must interpolate exactly.
+
+An alternative (sometimes stronger) fix is to replace interpolating splines with \emph{smoothing splines} for $d(s)$, so that the final trajectory is not forced to pass exactly through all waypoints; this directly reduces curvature spikes at knots. Both approaches are consistent with the goal of producing physically interpretable trajectories under a curvature-sensitive speed model.
+
+\subsection{Selection, variation, and elitism}
+We use a standard real-coded GA with:
+\begin{itemize}
+    \item Tournament selection.
+    \item Crossover between parent offset vectors (e.g., arithmetic crossover or SBX \cite{b_deb1995}).
+    \item Gaussian mutation on offsets (followed by clipping/repair).
+    \item Elitism (preserve best individuals into the next generation).
+\end{itemize}
+
+\subsection{Evaluation budget}
+A core experimental control is a fixed evaluation budget $B$ (number of fitness evaluations). For a population size $P$ and $G$ generations, a typical budget is $B \approx P\times G$ (plus initialization). Using a fixed budget ensures fair comparison across friction settings and repeated runs, since each run consumes the same computational effort.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Experimental Setup}
+\subsection{Friction conditions}
+We evaluate three friction coefficients:
+\begin{itemize}
+    \item Low grip: $\mu = 0.6$
+    \item Medium grip: $\mu = 0.9$
+    \item High grip: $\mu = 1.2$
+\end{itemize}
+
+\subsection{Common dynamic parameters}
+Across all friction conditions, the quasi-steady speed model uses the same hardware and numerical settings (matching the implementation in \texttt{speed\_model.py}): $g=9.81~\mathrm{m/s^2}$, $v_{\max}=80~\mathrm{m/s}$, $a_{\mathrm{eng}}=6~\mathrm{m/s^2}$, $a_{\mathrm{brake}}=8~\mathrm{m/s^2}$, curvature smoothing $\varepsilon=10^{-6}$, and lap-time floor $v_{\min}=1~\mathrm{m/s}$. Holding these fixed isolates the effect of $\mu$.
+
+\subsection{Repeated runs and statistics}
+For each $\mu$, we perform at least 20 independent GA runs with different random seeds. For each condition, we report:
+\begin{itemize}
+    \item Mean lap time
+    \item Standard deviation
+    \item Best lap time across runs
+\end{itemize}
+
+\subsection{Implementation and reproducibility}
+The experimental loop is scripted in Python: lap-time evaluation and speed profiles are computed in \texttt{speed\_model.py}, fitness evaluation in \texttt{fitness.py}, and batch experiments in \texttt{experiments.py} with plotting utilities in \texttt{plots.py}. Using the same code path for all $\mu$ values and recording the random seeds per run enables reproduction of the statistics in Table~\ref{tab:lapstats}.
+
+\subsection{Measured outcome (example results)}
+Using our implementation and diagnostics, we obtained the following summary (example from one set of experiments):
+
+\begin{table}[htbp]
+\caption{Lap time statistics vs. friction coefficient (20 runs each).}
+\begin{center}
+\begin{tabular}{|c|c|c|c|}
+\hline
+$\mu$ & Mean (s) & Std (s) & Best (s)\\
+\hline
+0.60 & 38.01 & 0.60 & 37.14\\
+0.90 & 31.87 & 0.90 & 30.29\\
+1.20 & 27.60 & 0.57 & 26.53\\
+\hline
+\end{tabular}
+\label{tab:lapstats}
+\end{center}
+\end{table}
+
+These results match the expected qualitative trend: increasing friction increases feasible acceleration, which increases achievable speed and reduces lap time.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Analysis Plots and Diagnostic Methodology}
+\label{sec:analysisplots}
+A major practical challenge in this project was ensuring that plots reflect the \emph{same discretization and semantics} as the model. Misaligned plots can falsely suggest that the model violates constraints or produces non-physical ``instant'' deceleration.
+
+\subsection{Plotting along arc length (not step size)}
+Accelerations and speed are functions of arc length $s$ along the dense path. Therefore, the correct x-axis for profiles is the cumulative arc-length:
+\begin{equation}
+s_0 = 0,\quad s_{j+1} = s_j + \Delta s_j.
+\end{equation}
+Plotting against $\Delta s$ (step sizes) instead of $s$ is incorrect and obscures where events occur on the track.
+
+\subsection{Segment-consistent accelerations}
+Longitudinal acceleration is naturally defined on segments:
+\begin{equation}
+a_{\mathrm{long},j} \approx \frac{v_{j+1}^2 - v_j^2}{2\Delta s_j}.
+\end{equation}
+Lateral acceleration is also most consistent when evaluated at segment midpoints:
+\begin{equation}
+a_{\mathrm{lat},j} \approx v_{\mathrm{mid},j}^2 |\kappa_{\mathrm{mid},j}|.
+\end{equation}
+This reduces the common artifact where friction-circle scatter plots show slight violations due to off-by-one indexing or mixing pointwise and segmentwise quantities.
+
+\subsection{Interpreting friction-circle plots}
+In our diagnostics, high friction conditions produce samples close to the top arc of the friction circle, indicating near-saturation of lateral acceleration in corners. Vertical clusters in $(a_{\mathrm{long}},a_{\mathrm{lat}})$ often indicate saturation of engine/brake limits rather than friction; this interpretation aligns with quasi-steady lap simulation practice \cite{b_massaro2021}.
+
+\subsection{Why ``instant deceleration'' appears}
+A quasi-steady forward/backward pass enforces the curvature speed limit $v_{\mathrm{curve}}(s)$ at discrete $s$. If curvature changes abruptly between samples (e.g., from waypoint-induced curvature peaks), $v_{\mathrm{curve}}$ can drop sharply, forcing strong braking over very short distance. This yields large reconstructed $a_{\mathrm{long}}$ values even if the algorithm is behaving correctly. The appropriate fix is to reduce curvature spikes (Sec.~V-C) and ensure constant arc-length re-sampling.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Results and Discussion}
+\label{sec:discussion}
+\subsection{Effect of friction on lap time}
+Table~\ref{tab:lapstats} shows a monotonic improvement in lap time with increasing friction, as expected from \eqref{eq:frictioncircle}--\eqref{eq:vcurve}. Figure~\ref{fig:laptime} visualizes this trend and highlights that variance across runs shrinks slightly at higher grip. In this simplified model, higher friction increases both the curvature-limited speed and the available longitudinal acceleration budget, improving time both in corners and on exits.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{results/stats/lap_time_vs_mu.png}
+\caption{Measured lap time decreases as friction $\mu$ increases; error bars show variation across runs.}
+\label{fig:laptime}
+\end{figure}
+
+\subsection{Effect of friction on racing line geometry}
+As friction increases, the optimizer can afford trajectories that maintain higher speed through corners. In practice, this tends to:
+\begin{itemize}
+    \item Move the racing line toward a more ``outside--inside--outside'' pattern to reduce peak curvature.
+    \item Reduce the need for early, strong braking if curvature is lowered by geometry.
+\end{itemize}
+The exact geometric change depends on the track layout and the chosen trajectory parameterization. Figure~\ref{fig:racinglines} shows that the $\mu=1.2$ line carries speed with slightly later apexes and tighter exits, while the $\mu=0.6$ line stays wider to flatten curvature.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{results/lines/racing_lines.png}
+\caption{Best evolved racing lines for each friction level. Higher grip ($\mu=1.2$) allows a slightly tighter, later-apex line while still respecting track limits, whereas low grip ($\mu=0.6$) stays wider to reduce curvature.}
+\label{fig:racinglines}
+\end{figure}
+
+\subsection{Limitations of the simplified model}
+The friction-circle constraint is a coarse approximation of tire behavior; real tires often produce friction \emph{ellipses} and load-dependent behavior \cite{b_massaro2021}. Additionally, we do not model transient dynamics (e.g., yaw dynamics, load transfer). Therefore, the results should be interpreted as \emph{qualitative}: they correctly capture how friction changes feasible acceleration envelopes and thus influences optimal lines under a quasi-steady assumption, but not the full richness of race car dynamics.
+
+\subsection{Numerical considerations (discretization and curvature noise)}
+We observed two common numerical issues:
+\begin{itemize}
+    \item \textbf{Apparent friction-circle violations:} When $a_{\mathrm{lat}}$ and $a_{\mathrm{long}}$ are computed with mismatched discretizations (pointwise vs segmentwise) or with assumed constant $\Delta s$, a small subset of points may appear slightly outside the friction circle. Using true segment lengths and midpoint-consistent accelerations removes most of these artifacts.
+    \item \textbf{Waypoint-aligned spikes:} Interpolating splines forced through independently optimized waypoints can create curvature peaks at knot locations. This produces sharp speed-limit changes and large reconstructed accelerations. Smoothing-spline reconstruction or explicit smoothness regularization mitigates this issue.
+\end{itemize}
+Figure~\ref{fig:accelprofiles} illustrates the acceleration profiles that result from the optimized lines. Lateral acceleration rises with $\mu$ and remains near its cap through long corners, while longitudinal acceleration spends more time at the engine/brake limits as friction grows, consistent with the friction-circle coupling.
+
+\begin{figure*}[t]
+\centering
+\begin{minipage}{0.32\textwidth}
+\centering
+\includegraphics[width=\linewidth]{results/acceleration_profiles/accel_profiles_mu_0p60.png}\\[-2pt]
+\small (a) $\mu=0.6$
+\end{minipage}\hfill
+\begin{minipage}{0.32\textwidth}
+\centering
+\includegraphics[width=\linewidth]{results/acceleration_profiles/accel_profiles_mu_0p90.png}\\[-2pt]
+\small (b) $\mu=0.9$
+\end{minipage}\hfill
+\begin{minipage}{0.32\textwidth}
+\centering
+\includegraphics[width=\linewidth]{results/acceleration_profiles/accel_profiles_mu_1p20.png}\\[-2pt]
+\small (c) $\mu=1.2$
+\end{minipage}
+\caption{Acceleration profiles along arc length for each friction level. As $\mu$ grows, lateral acceleration saturates a higher limit and longitudinal acceleration spends more time at engine/brake caps rather than at the friction boundary, consistent with the friction-circle constraint.}
+\label{fig:accelprofiles}
+\end{figure*}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Conclusion}
+We presented an EA-based racing line optimizer coupled with a quasi-steady lap time evaluator based on curvature and friction-circle constraints. The experimental study confirms the expected trend that higher friction yields lower lap times and changes the shape of the optimal racing line. Beyond the main results, a key lesson of this project is methodological: when models are evaluated discretely and are sensitive to curvature, the trajectory representation, curvature estimation, and plotting methodology must be aligned to avoid misleading diagnostics. The final pipeline provides a clear, reproducible framework suitable for course-scale research in evolutionary computation and autonomous racing.
+
+\section*{Acknowledgment}
+(Optional) The author thanks the course instructor and teaching staff for guidance and feedback.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{thebibliography}{00}
+
+\bibitem{b_bobrow1985}
+J.~E. Bobrow, S.~Dubowsky, and J.~S. Gibson, ``Time-optimal control of robotic manipulators along specified paths,'' \emph{The International Journal of Robotics Research}, vol.~4, no.~3, pp.~3--17, 1985.
+
+\bibitem{b_shin1985}
+K.~G. Shin and N.~D. McKay, ``Minimum-time control of robotic manipulators with geometric path constraints,'' \emph{IEEE Transactions on Automatic Control}, vol.~30, no.~6, pp.~531--541, 1985.
+
+\bibitem{b_massaro2021}
+M.~Massaro and D.~J.~N. Limebeer, ``Minimum-lap-time optimisation and simulation,'' 2021.
+
+\bibitem{b_dalbianco2017}
+N.~Dal~Bianco, R.~Lot, and M.~Gadola, ``Minimum time optimal control simulation of a GP2 race car,'' 2017.
+
+\bibitem{b_goodman2009}
+E.~J. Goodman, ``Race car vehicle dynamics \& design applied to formula student,'' M.Phil. thesis, Aston University, 2009.
+
+\bibitem{b_deb1995}
+K.~Deb and R.~Agrawal, ``Simulated binary crossover for continuous search space,'' \emph{Complex Systems}, vol.~9, no.~2, pp.~115--148, 1995.
+
+\bibitem{b_storn1997}
+R.~Storn and K.~Price, ``Differential evolution -- a simple and efficient heuristic for global optimization over continuous spaces,'' \emph{Journal of Global Optimization}, vol.~11, pp.~341--359, 1997.
+
+\bibitem{b_katoch2020}
+S.~Katoch, S.~S. Chauhan, and V.~Kumar, ``A review on genetic algorithm: past, present, and future,'' \emph{Multimedia Tools and Applications}, 2020.
+
+\bibitem{b_vrajitoru2019}
+D.~Vrajitoru, ``Trajectory optimization for car races using genetic algorithms,'' in \emph{Proc. GECCO Companion}, 2019.
+
+\bibitem{b_ga_racing2021}
+``Car racing line optimization with genetic algorithm using approximate homeomorphism,'' 2021.
+
+\end{thebibliography}
+
+\end{document}
