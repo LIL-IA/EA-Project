@@ -32,9 +32,6 @@ def evaluate_individual(
     )
 
     penalty = 0.0
-    if not trajectory.valid:
-        penalty += 1e6
-
     curvature_variation = np.std(np.diff(curvature))
     penalty += 0.1 * curvature_variation
 
